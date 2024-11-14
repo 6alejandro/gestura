@@ -22,6 +22,7 @@ import androidx.lifecycle.Observer
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
 class MainActivity : AppCompatActivity() {
@@ -30,6 +31,9 @@ class MainActivity : AppCompatActivity() {
     private val translationViewModel: TranslationViewModel by viewModels {
         TranslationViewModelFactory(TranslationRepository(ApiConfig.retrofit.create(ApiService::class.java)))
     }
+
+    // Executor for background analysis
+    private val analysisExecutor: ExecutorService = Executors.newSingleThreadExecutor()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -72,19 +76,19 @@ class MainActivity : AppCompatActivity() {
                 .build()
 
             // Use a dedicated executor for frame analysis
-            val analysisExecutor = Executors.newSingleThreadExecutor()
-
             Log.d("CameraActivity", "Setting image analyzer")
 
-            imageAnalysis.setAnalyzer(ContextCompat.getMainExecutor(this), { imageProxy ->
+            imageAnalysis.setAnalyzer(analysisExecutor) { imageProxy ->
                 Log.d("CameraActivity", "Received a frame for analysis")
                 processImageProxy(imageProxy)
-            })
+            }
 
             try {
                 cameraProvider.unbindAll()
                 Log.d("CameraActivity", "Binding use cases to lifecycle")
-                cameraProvider.bindToLifecycle(this, cameraSelector, preview)
+                // Ensure that imageAnalysis is also bound to the lifecycle
+                cameraProvider.bindToLifecycle(this, cameraSelector, preview, imageAnalysis)
+                Log.d("CameraActivity", "Camera successfully bound to lifecycle.")
             } catch (exc: Exception) {
                 Log.e("CameraActivity", "Failed to bind use cases", exc)
                 exc.printStackTrace()
@@ -93,10 +97,13 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun processImageProxy(imageProxy: ImageProxy) {
+        // Sleep to simulate processing delay
         Thread.sleep(100) // 100ms delay to avoid overwhelming the system
 
         Log.d("CameraActivity", "processImageProxy function called") // Check if this function is reached
         Log.d("CameraActivity", "Processing image frame")
+
+        // Convert imageProxy to bitmap
         val bitmap = imageProxy.toBitmap()
 
         // Send the bitmap frame to the ViewModel
@@ -109,6 +116,8 @@ class MainActivity : AppCompatActivity() {
         } else {
             Log.e("CameraActivity", "Failed to convert image proxy to bitmap")
         }
+
+        // Close the imageProxy to prevent memory leaks
         imageProxy.close()
     }
 
